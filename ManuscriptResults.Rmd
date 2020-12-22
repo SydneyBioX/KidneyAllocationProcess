@@ -1,0 +1,199 @@
+---
+title: "Results"
+author: "Anne"
+date: "4/11/2020"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_float: yes
+
+---
+
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
+
+```
+
+
+```{r}
+library(readxl)
+library(kableExtra)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(ggpubr)
+library(ggthemes)
+library("RColorBrewer")
+
+data = readRDS("./data_2017.rds") 
+
+
+```
+
+
+```{r}
+data$recip_agegroups <- cut(data$recip_age, 
+                   breaks=c(0, 18, 40, 60, Inf), right = FALSE)
+
+data$PRA_cat <- cut(data$recip_pra, 
+                   breaks=c(0, 50, 80, Inf), right = FALSE)
+
+index <- which(data$recip_state %in% c("NZ", NA) | data$donor_state %in% c("NZ", NA) )
+data <- data[-index,] %>% as.data.frame()
+
+
+tx_donor <- as.character(unlist(data$donor_state))
+data$tx_donor<- sapply(tx_donor, function(x) switch(as.character(x),
+                                              NSW = "NSW", ACT = "NSW",
+                                              VIC = "VIC", TAS = "VIC",
+                                              SA = "SA", NT = "SA",
+                                              WA = "WA", QLD = "QLD"))
+
+
+
+data <- data %>% 
+  mutate(recip_listtime = as.numeric(as.character(recip_listtime))/365,
+         recip_waittime = as.numeric(as.character(recip_waittime))/365,
+        tx_donor = as.factor(as.character(tx_donor))) %>%
+  mutate(eth_recip = ifelse(recip_eth_detailed == "Caucasoid", "European", "Other"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "Australian"), "European"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "North American"), "European"),
+         eth_recip = replace(eth_recip, recip_eth_detailed== "Oceanian - Australian Aboriginal" |  str_detect(recip_eth_detailed, "Torre"),"Indigenous Australians"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "European"), "European"), 
+         eth_recip = as.factor(eth_recip),
+         
+         eth_donor = ifelse(donor_eth_code == "Caucasoid", "European", "Other"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "Australian"), "European"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "North American"), "European"),
+         eth_donor = replace(eth_donor, donor_eth_code== "Oceanian - Australian Aboriginal" |  str_detect(donor_eth_code, "Torre"),  "Indigenous Australians"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "European"), "European"), 
+         eth_donor = as.factor(eth_donor))%>% mutate(graft_cat = ifelse(recip_graftno == 1, "1", "2+")) %>%
+  as.data.frame()
+#data %>% dplyr::select(recip_eth_detailed, eth_recip,donor_eth_code, eth_donor )
+
+
+```
+
+
+```{r}
+
+source("./allocation_algorithm.R")
+HLA<- data %>% dplyr::select(tx_misa, tx_misb, tx_misdr)
+
+original_score <- allocation_national(data,data,HLA)
+table(original_score < 54000000)
+data$algorithm <- ifelse(original_score >= 54000000,
+                            "National", "State")
+
+```
+# Tables
+
+```{r}
+data %>% group_by(algorithm, recip_state) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n))
+
+data %>% group_by(algorithm, PRA_cat, recip_state) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n)) %>% filter(PRA_cat == "80+")
+
+data %>% group_by(recip_sex, PRA_cat) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n))
+
+
+nrow(data)
+length(unique(data$donor_id))
+```
+
+```{r}
+
+algorithm <- data %>%
+  count(algorithm) %>%
+  mutate(proportion = n/sum(n)) %>%
+  mutate(proportion = round(proportion,2)*100)
+
+age_group <- data %>%
+  group_by(algorithm, recip_agegroups) %>%
+  count()
+
+pra_group <- data %>% group_by(algorithm, PRA_cat,recip_sex) %>%  summarise(n=n(), median = median(recip_listtime), IQR = IQR(recip_listtime)) %>% filter(PRA_cat == "[80,Inf)")
+pra_group$PRA_cat <- c("80+")
+
+eth <- data %>% mutate(replace(eth_recip, eth_recip == "Aboriginal/ Torres Strait Islander", "Indigenous Australian"))%>% group_by(algorithm, eth_recip) %>%  summarise(n=n(), median = median(recip_listtime),IQR = IQR(recip_listtime)) %>% tidyr::drop_na() %>% ungroup()
+
+
+
+```
+
+```{r}
+kable(algorithm, col.names = c("Algorithm", "No. per regime", "Proportion (%)"), caption = "Table 1: Amount of people allocated under the National and State Allocation Framework" )%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F) %>%
+  row_spec(c(2), bold = T, color = "black", background = "lightblue")
+
+kable(age_group, col.names = c("Algorithm", "Age Group", "No. of recipients"), caption = "Table 2: Age demographics of kidney transplant recipients under the National and State Allocation Framework")%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F) %>%
+  row_spec(c(2,3,6,7), bold = T, color = "black", background = "lightblue")
+
+kable(pra_group,col.names = c("Algorithm","PRA", "Sex", "No. of recipients", "Median time", "IQR"), caption = "Table 3: Demographics and median list to transplant time of sensitised recipients under the National and State Allocation Framework", digits=2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F) %>%
+  row_spec(c(3,4), bold = T, color = "black", background = "lightblue")
+
+kable(eth,col.names = c("Algorithm", "Ethnicity", "No. of recipients", "Median time", "IQR"), digits = 2, caption = "Table 4: Median list to transplant time for recipients of different ethnicities under the National and State Allocation Framework") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F) %>%
+  row_spec(c(4,5,6), bold = T, color = "black", background = "lightblue")
+
+
+```
+```{r}
+donor_data <- data %>% dplyr::select(tx_date, donor_id, tx_donor) %>% mutate(year = lubridate::year(tx_date), donor_id = as.character(donor_id)) %>% filter(year %in% c("2012", "2013","2014", "2015","2016", "2017")) 
+
+donor_data<- donor_data[!duplicated(donor_data$donor_id),]
+population_data <- donor_data %>% group_by(year, tx_donor) %>% summarise(n=n())
+
+waitlist_o <- read_excel("./waitlist_pop.xlsx")
+
+waitlist_o <- reshape2::melt(waitlist_o, id.vars=c("Modality", "recip_state"), variable.name="year", value.name = "waitlist")
+
+waitlist_o <- merge(waitlist_o, population_data, by.x = c("recip_state", "year"), by.y = c("tx_donor", "year")) %>% mutate(prop = n/as.numeric(as.character(waitlist)))
+waitlist_o <- merge(waitlist_o, donor_data, by.x = c("recip_state", "year"), by.y= c("tx_donor", "year")) %>% mutate(prop = as.numeric(as.character(prop)))
+
+
+waitlist_o <- waitlist_o %>% dplyr::select(recip_state, prop, year) 
+waitlist_o<- waitlist_o[!duplicated(waitlist_o),]
+
+level = c("NSW", "VIC","QLD", "SA", "WA")
+waitlist_o$recip_state <- factor(waitlist_o$recip_state,levels = level)
+waitlist_o %>% filter(year %in% c(2012, 2017)) 
+
+```
+```{r}
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$recip_state <- factor(data$recip_state,levels = level)
+
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$tx_donor <- factor(data$tx_donor,levels = level)
+
+data$tx_year <- format(as.Date(data$tx_date), format = "%Y")
+
+
+balance_year <-table(data$tx_year, data$recip_state)-table(data$tx_year, data$tx_donor) 
+balance_year<- reshape2::melt(balance_year, id.vars=c("state", "Count"))
+balance_year$type <- ifelse(balance_year$value >0, "Excess transplants", "Deficit of transplants")
+colnames(balance_year) <- c("year", "state", "Count", "Type")
+balance_year$year <- as.factor(balance_year$year )
+
+balance_year %>% group_by(state) %>% summarise(count = sum(Count))
+```
+
+
+```{r}
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$recip_state <- factor(data$recip_state,levels = level)
+data$tx_year <- lubridate::year(data$tx_date)
+
+year<- data %>% mutate(year = lubridate::year(tx_date)) %>%
+  group_by(recip_state, year, algorithm) %>%
+  summarise(median=median(recip_listtime), first = quantile(recip_listtime)[2] , third = quantile(recip_listtime)[4]  , n=n()) 
+
+year %>% arrange(desc(median))
+
+```

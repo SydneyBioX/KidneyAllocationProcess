@@ -1,0 +1,599 @@
+---
+title: "All plots"
+author: "Anne"
+date: "22/12/2020"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
+
+```
+
+
+```{r}
+library(readxl)
+library(kableExtra)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(ggpubr)
+library(ggthemes)
+library("RColorBrewer")
+
+data = readRDS("./data_2017.rds") 
+
+
+```
+
+
+```{r}
+data$recip_agegroups <- cut(data$recip_age, 
+                   breaks=c(0, 18, 40, 60, Inf), right = FALSE)
+
+data$PRA_cat <- cut(data$recip_pra, 
+                   breaks=c(0, 50, 80, Inf), right = FALSE)
+
+index <- which(data$recip_state %in% c("NZ", NA) | data$donor_state %in% c("NZ", NA) )
+data <- data[-index,] %>% as.data.frame()
+
+
+tx_donor <- as.character(unlist(data$donor_state))
+data$tx_donor<- sapply(tx_donor, function(x) switch(as.character(x),
+                                              NSW = "NSW", ACT = "NSW",
+                                              VIC = "VIC", TAS = "VIC",
+                                              SA = "SA", NT = "SA",
+                                              WA = "WA", QLD = "QLD"))
+
+
+
+data <- data %>% 
+  mutate(recip_listtime = as.numeric(as.character(recip_listtime))/365,
+         recip_waittime = as.numeric(as.character(recip_waittime))/365,
+        tx_donor = as.factor(as.character(tx_donor))) %>%
+  mutate(eth_recip = ifelse(recip_eth_detailed == "Caucasoid", "European", "Other"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "Australian"), "European"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "North American"), "European"),
+         eth_recip = replace(eth_recip, recip_eth_detailed== "Oceanian - Australian Aboriginal" |  str_detect(recip_eth_detailed, "Torre"),"Indigenous Australians"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "European"), "European"), 
+         eth_recip = as.factor(eth_recip),
+         
+         eth_donor = ifelse(donor_eth_code == "Caucasoid", "European", "Other"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "Australian"), "European"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "North American"), "European"),
+         eth_donor = replace(eth_donor, donor_eth_code== "Oceanian - Australian Aboriginal" |  str_detect(donor_eth_code, "Torre"),  "Indigenous Australians"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "European"), "European"), 
+         eth_donor = as.factor(eth_donor))%>% mutate(graft_cat = ifelse(recip_graftno == 1, "1", "2+")) %>%
+  as.data.frame()
+#data %>% dplyr::select(recip_eth_detailed, eth_recip,donor_eth_code, eth_donor )
+
+
+```
+
+
+```{r}
+
+source("./allocation_algorithm.R")
+HLA<- data %>% dplyr::select(tx_misa, tx_misb, tx_misdr)
+
+original_score <- allocation_national(data,data,HLA)
+table(original_score < 54000000)
+data$algorithm <- ifelse(original_score >= 54000000,
+                            "National", "State")
+
+```
+
+
+## Main Plots
+
+```{r}
+reorder_flip = c( "NSW", "VIC", "QLD","WA" , "SA")
+reorder<- c( "SA", "WA", "QLD","VIC" , "NSW")
+data$recip_state = factor(data$recip_state, levels = reorder_flip)
+data_combine <- data %>% mutate(algorithm = "Total")
+data_combined <- rbind(data, data_combine)
+data_combined$algorithm <- factor(data_combined$algorithm , levels = c("Total", "State", "National"))
+
+mean_wait <- data_combined %>%  mutate( recip_listtime_log = log(recip_listtime) )%>%
+  group_by(recip_state, algorithm) %>%
+  summarise(median = median(recip_listtime), 
+            quants_25 = quantile(recip_listtime, probs = c(0.25)), 
+            quants_75 = quantile(recip_listtime, probs = c(0.75)), n=n() ) %>%
+  group_by(algorithm) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(~algorithm, scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 14), aspect.ratio = 0.8) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) +  geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 3, alpha = 0.7)+labs( x ="States", y = "Time from listing to \n transplantation (years)")
+
+```
+
+
+
+
+```{r}
+data$algorithm <- factor(data$algorithm, levels = c("State", "National"))
+levels(data$PRA_cat) <- c("0-50", "50-80", "80+")
+mean_wait <- data %>%  mutate( recip_listtime_log = log(recip_listtime) )%>% filter(!is.na(PRA_cat)) %>%
+  mutate(PRA_cat = forcats::fct_explicit_na(PRA_cat)) %>%
+  group_by(recip_state, algorithm, PRA_cat) %>%
+  summarise(median = median(recip_listtime), 
+            quants_25 = quantile(recip_listtime, probs = c(0.25)), 
+            quants_75 = quantile(recip_listtime, probs = c(0.75)),
+            n= n()) %>%
+  group_by(algorithm,PRA_cat) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+gga2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(PRA_cat), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 14), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 4, alpha = 0.7)+ labs( x ="States", y = "Time from listing to \n transplantation (years)")
+
+levels(data$recip_agegroups) <- c("0-18", "18-40", "40-60", "60+")
+data$recip_agegroups <- as.factor(data$recip_agegroups)
+
+mean_wait <- data %>%  mutate( recip_listtime_log = log(recip_listtime) )%>%filter(recip_agegroups %in% c("18-40", "40-60", "60+"))%>%
+  group_by(recip_state, algorithm, recip_agegroups) %>%
+  summarise(median = median(recip_listtime), 
+            quants_25 = quantile(recip_listtime, probs = c(0.25)), 
+            quants_75 = quantile(recip_listtime, probs = c(0.75)), n= n()) %>%
+  group_by(algorithm,recip_agegroups) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+ggb2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(recip_agegroups), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 14), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4)+ geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 4, alpha = 0.7) + labs( x ="States", y = "Time from listing to \n transplantation (years)")
+
+mean_wait <- data %>%  mutate( recip_listtime_log = log(recip_listtime) )%>%
+  group_by(recip_state, algorithm, recip_sex) %>%
+  summarise(median = median(recip_listtime), 
+            quants_25 = quantile(recip_listtime, probs = c(0.25)), 
+            quants_75 = quantile(recip_listtime, probs = c(0.75)), n= n()) %>%
+  group_by(algorithm,recip_sex) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+ggc2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(recip_sex), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 14), aspect.ratio = 0.7) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 4, alpha = 0.7)+ labs( x ="States", y = "Time from listing to \n transplantation (years)")
+
+mean_wait <- data %>%  mutate( recip_listtime_log = log(recip_listtime))%>%filter(!is.na(eth_recip)) %>%
+  group_by(recip_state, algorithm, eth_recip) %>%
+  summarise(median = median(recip_listtime), 
+            quants_25 = quantile(recip_listtime, probs = c(0.25)), 
+            quants_75 = quantile(recip_listtime, probs = c(0.75)), n= n()) %>%
+  group_by(algorithm,eth_recip) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+
+ggd2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(eth_recip), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 14), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 4, alpha = 0.7)+ labs( x ="States", y = "Time from listing to \n transplantation (years)")
+
+
+
+gga2
+ggb2
+ggc2
+ggd2
+
+```
+
+
+## Supplementary figures
+
+
+### Yearly Change in list time
+
+
+
+```{r}
+
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$recip_state <- factor(data$recip_state,levels = level)
+data$tx_year <- lubridate::year(data$tx_date)
+
+year<- data %>% mutate(year = lubridate::year(tx_date)) %>%
+  group_by(recip_state, year, algorithm) %>%
+  summarise(median=median(recip_listtime), first = quantile(recip_listtime)[2] , third = quantile(recip_listtime)[4]  , n=n()) 
+
+year$algorithm <- factor(year$algorithm, levels = c("State", "National"))
+year %>%
+  ggplot(aes(x=year,y=median,  colour= recip_state, group = recip_state)) +
+  geom_path( size=1) + facet_grid( cols = vars(recip_state), rows = vars(algorithm), scales = "free" ) + geom_errorbar(aes(ymax=third, ymin=first),linetype = "dashed", alpha=0.5) +
+  labs(x ="Year", y = "Time from listing to \n transplantation (years)")+ theme_bw() + theme(axis.text.x = element_text(angle = -90, hjust = 1), legend.position = "none", text = element_text(size = 14), aspect.ratio = 2)+ scale_x_continuous(breaks = seq(2009,2017, 2)) + guides(colour=guide_legend(title="Recipient State")) + scale_colour_tableau()
+
+
+```
+
+
+### Donor proportions
+
+
+## Donor Proportions 
+
+```{r}
+# Only look at 2012 - 2017 data 
+# bear in mind the 1 donor 2 kidney thing 
+# need to do on a year by year basis - cannot conflate years 
+data$algorithm <- factor(data$algorithm , levels = c( "National","State"))
+
+donor_data <- data %>% dplyr::select(tx_date, donor_id, tx_donor, algorithm) %>% mutate(year = lubridate::year(tx_date), donor_id = as.character(donor_id)) %>% filter(year %in% c("2012", "2013","2014", "2015","2016", "2017")) 
+
+donor_data<- donor_data[!duplicated(donor_data$donor_id),]
+population_data <- donor_data %>% group_by(year, tx_donor, algorithm) %>% summarise(n=n())
+
+waitlist <- read_excel("./waitlist_pop.xlsx")
+
+waitlist <- reshape2::melt(waitlist, id.vars=c("Modality", "recip_state"), variable.name="year", value.name = "waitlist")
+
+waitlist <- merge(waitlist, population_data, by.x = c("recip_state", "year"), by.y = c("tx_donor", "year")) %>% mutate(prop = n/as.numeric(as.character(waitlist)))
+waitlist <- merge(waitlist, donor_data, by.x = c("recip_state", "algorithm", "year"), by.y= c("tx_donor", "algorithm", "year")) %>% mutate(prop = as.numeric(as.character(prop)))
+
+
+waitlist <- waitlist %>% dplyr::select(recip_state, prop, algorithm, year) 
+waitlist<- waitlist[!duplicated(waitlist),]
+
+level = c("NSW", "VIC","QLD", "SA", "WA")
+waitlist$recip_state <- factor(waitlist$recip_state,levels = level)
+
+ggb2<- ggplot()  +  geom_col(data = waitlist, aes(x=recip_state, y=prop, fill = algorithm, position = "dodge"), size = 0.5) +
+  facet_wrap(~year) +labs(y="Donor to candidates on waitlist", x = "States")+ guides(fill=guide_legend(title="Algorithm")) +theme_bw()+theme(legend.position = "bottom", text = element_text(size=14), aspect.ratio = 0.9) +  scale_fill_manual(values=c("#F28E2B","#4E79A7"))
+
+ggb2
+
+ggsave("donor1.pdf")
+
+
+```
+
+
+
+
+```{r}
+donor_data <- data %>% dplyr::select(tx_date, donor_id, donor_state, algorithm) %>% mutate(year = lubridate::year(tx_date), donor_id = as.character(donor_id)) %>% filter(year %in% c("2012", "2013","2014", "2015","2016", "2017")) 
+
+donor_data<- donor_data[!duplicated(donor_data$donor_id),]
+population_data <- donor_data %>% group_by(year, donor_state, algorithm) %>% summarise(n=n())
+level = c("NSW", "VIC","QLD", "SA", "WA", "TAS", "ACT", "NT")
+donor_data$donor_state <- factor(donor_data$donor_state,levels = level)
+
+ggb3<- ggplot()  +  geom_bar(data = donor_data, aes(x=donor_state, fill = algorithm, position = "dodge"), size = 0.5) +
+  facet_wrap(~year) +labs( y="Absolute donor numbers ", x = "States")+ guides(fill=guide_legend(title="Algorithm")) +theme_bw()+theme(legend.position = "bottom", text =element_text(size=14) ,axis.text.x = element_text(size=9), aspect.ratio = 0.5)+ scale_fill_manual(values=c("#F28E2B","#4E79A7"))
+
+ggb3
+ggsave("donor2.pdf")
+
+```
+
+```{r}
+donor_data <- data %>% dplyr::select(tx_date, donor_id, donor_state, algorithm) %>% mutate(year = lubridate::year(tx_date), donor_id = as.character(donor_id)) %>% filter(year %in% c("2012", "2013","2014", "2015","2016", "2017")) 
+
+donor_data<- donor_data[!duplicated(donor_data$donor_id),]
+population_data <- donor_data %>% group_by(year, donor_state, algorithm) %>% summarise(n=n())
+
+donor_data$donor_state <- factor(donor_data$donor_state,levels = level)
+
+waitlist <- read_excel("./state_population.xlsx") 
+
+waitlist <- reshape2::melt(waitlist, id.vars=c("Modality", "recip_state"), variable.name="year", value.name = "waitlist") %>% mutate(waitlist = as.numeric(waitlist)/1000000)
+
+waitlist <- merge(waitlist, population_data, by.x = c("recip_state", "year"), by.y = c("donor_state", "year")) %>% mutate(prop = n/as.numeric(as.character(waitlist)))
+waitlist <- merge(waitlist, donor_data, by.x = c("recip_state", "algorithm", "year"), by.y= c("donor_state", "algorithm", "year")) %>% mutate(prop = as.numeric(as.character(prop)))
+
+
+waitlist <- waitlist %>% dplyr::select(recip_state, prop, algorithm, year) 
+waitlist<- waitlist[!duplicated(waitlist),]
+
+level = c("NSW", "VIC","QLD", "SA", "WA", "TAS", "ACT", "NT")
+waitlist$recip_state <- factor(waitlist$recip_state,levels = level)
+
+ggb4<- ggplot()  +  geom_col(data = waitlist, aes(x=recip_state, y=prop, fill = algorithm), size = 0.5) +
+  facet_wrap(~year) +labs(y="Donor per million population", x = "States")+ guides(fill=guide_legend(title="Algorithm")) +theme_bw()+theme(legend.position = "bottom", text =element_text(size=14) ,axis.text.x = element_text(size=9), aspect.ratio = 0.7) +  scale_fill_manual(values=c("#F28E2B","#4E79A7"))
+
+ggb4
+
+ggsave("donor3.pdf")
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+## State Balance
+
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$recip_state <- factor(data$recip_state,levels = level)
+
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$tx_donor <- factor(data$tx_donor,levels = level)
+
+data$tx_year <- format(as.Date(data$tx_date), format = "%Y")
+
+
+balance_year <-table(data$tx_year, data$recip_state)-table(data$tx_year, data$tx_donor) 
+balance_year<- reshape2::melt(balance_year, id.vars=c("state", "Count"))
+balance_year$type <- ifelse(balance_year$value >0, "Excess transplants", "Deficit of transplants")
+colnames(balance_year) <- c("year", "state", "Count", "Type")
+balance_year$year <- as.factor(balance_year$year )
+
+balance_year %>% ggplot(aes(x=year, y=Count,  fill=Type)) +geom_col() + facet_grid(~state)+ theme_bw() +theme(axis.text.x = element_text(angle = -90, hjust = 1), legend.position = "top",text = element_text(size=14))  +
+  labs( x ="Year")+  scale_fill_manual(values=c("#E15759","#4E79A7"))
+ggsave("StateBalance.pdf")
+```
+
+## Interstate Flow 
+
+```{r}
+library(ggalluvial)
+level = c("NSW", "VIC","QLD", "SA", "WA")
+data$tx_donor <- factor(data$tx_donor,levels = level)
+data$recip_state <- factor(data$recip_state,levels = level)
+
+links <- data %>% group_by( tx_donor, recip_state, algorithm) %>% summarise(n=n())
+
+gga2<- links %>% filter(algorithm == "National")%>% ggplot(aes(y= n, axis1 = tx_donor, axis2=recip_state)) +
+  geom_alluvium(aes(fill = tx_donor), width = 1/12)+
+  geom_stratum(width = 1/12,fill="white", color = "grey") + 
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) + ggtitle("Flow of donors to recipients under the national algorithm (2008- 2017)")  + guides(fill=guide_legend(title="Donor State")) + labs(x = "States", y= "Number of transplants") + scale_y_continuous(breaks = c(seq(0,1000, 100))) + theme_bw() + theme(legend.position = "top", axis.text.x=element_blank()) + scale_fill_tableau()
+
+gga2
+ggsave("InterstateFlow.pdf")
+
+```
+
+### Listing time boxplots 
+
+```{r}
+
+
+reorder<- c( "SA", "WA", "QLD","VIC" , "NSW")
+data$recip_state = factor(data$recip_state, levels = reorder)
+data$algorithm <- factor(data$algorithm, levels = c( "National","State"))
+
+mean_wait <- data %>%
+  group_by(recip_state, algorithm) %>%
+  summarise(median = median(recip_listtime)) %>%
+  group_by(algorithm) %>% 
+  mutate( type=ifelse( median == min(median), "Minimum Median","Other")) %>%
+  mutate( type=replace(type, median == max(median) , "Maximum Median"))%>% 
+  as.data.frame()
+
+pop = data %>% group_by(algorithm) %>% summarise(n=n())
+pop$n <- paste("n=",pop$n, sep = "")
+
+
+merge(data, mean_wait, by=c("recip_state", "algorithm"), all = T)  %>%
+  ggplot(aes(x=recip_state, y= recip_listtime, fill = type)) +   
+  geom_boxplot(alpha = 0.7) + coord_flip() + facet_grid(~algorithm, scales = "free") +
+  geom_label(data=pop, mapping = aes(x = 1, y = 9, label =n),fill = "white",show.legend = FALSE) +
+  scale_fill_manual( values=c("#FF3333","#3366FF", "white", "grey")) + scale_y_continuous(breaks = c(seq(0,10,1)))+
+  scale_alpha_manual(values=c(1, 1, 0.04))+ labs(
+        x ="States", y = "Time from listing to transplantation (years)") + theme_bw() + theme( legend.position = "none", aspect.ratio = 0.7,text = element_text(size = 16),)
+
+
+```
+
+
+
+
+```{r}
+levels(data$PRA_cat) <- c("0-50", "50-80", "80+")
+
+mean_wait <- data %>% tidyr::drop_na(PRA_cat) %>%
+  group_by(recip_state, PRA_cat, algorithm) %>%
+  summarise(median = median(recip_listtime), n=n()) %>% 
+  group_by(PRA_cat, algorithm) %>%
+  mutate( type=ifelse( median == min(median), "Minimum median","Other")) %>%
+  mutate( type=replace(type, median == max(median) , "Maximum median"))%>% 
+  as.data.frame() 
+
+pop = data%>% tidyr::drop_na(PRA_cat)  %>% group_by(algorithm, PRA_cat) %>% summarise(n=n())
+pop$n <- paste("n=",pop$n, sep = "")
+
+
+gga<- merge(data, mean_wait, by=c("recip_state", "PRA_cat", "algorithm"), all = T) %>% filter(!is.na(PRA_cat)) %>%
+  mutate(PRA_cat = forcats::fct_explicit_na(PRA_cat)) %>%
+  ggplot(aes(x=recip_state, y= recip_listtime, fill = type)) +   
+  geom_boxplot(alpha = 0.7) + coord_flip() + facet_grid(rows = vars(PRA_cat), cols = vars(algorithm))+
+  geom_label(data=pop, mapping = aes(x = 1.5, y = 8, label =n),fill = "white",show.legend = FALSE) + 
+  scale_fill_manual( values=c("#FF3333","#3366FF", "white", "grey")) +
+  scale_alpha_manual(values=c(1, 1, 0.04))+ scale_y_continuous(breaks = c(seq(0,10,1))) + 
+  labs(
+        x ="States", y = "Time from listing to transplantation (years)" ) + theme_bw() + theme( legend.position = "none")
+
+gga
+
+```
+
+```{r}
+
+mean_wait <- data %>%
+  group_by(recip_state, recip_sex, algorithm) %>%
+  summarise(median = median(recip_listtime), n=n()) %>% 
+  group_by(recip_sex, algorithm) %>%
+  mutate( type=ifelse( median == min(median), "Minimum median","Other")) %>%
+  mutate( type=replace(type, median == max(median) , "Maximum median"))%>% 
+  as.data.frame()
+
+pop = data%>% tidyr::drop_na(recip_sex)  %>% group_by(algorithm, recip_sex) %>% summarise(n=n())
+pop$n <- paste("n=",pop$n, sep = "")
+
+ggb <- merge(data, mean_wait, by=c("recip_state", "recip_sex", "algorithm"), all = T)  %>%
+  ggplot(aes(x=recip_state, y= recip_listtime, fill = type)) +   
+  geom_boxplot(alpha = 0.7) + coord_flip() + facet_grid(rows = vars(recip_sex), cols = vars(algorithm))+
+  scale_fill_manual( values=c("#FF3333","#3366FF", "white", "grey")) +
+  scale_alpha_manual(values=c(1, 1, 0.04))+ scale_y_continuous(breaks = c(seq(0,10,1))) + 
+  geom_label(data=pop, mapping = aes(x = 1.5, y = 8, label =n),fill = "white",show.legend = FALSE) +
+  labs(
+        x ="States", y = "Time from listing to transplantation (years)" )  + theme_bw() + theme( legend.position = "none")
+
+ggb
+
+```
+
+
+```{r}
+
+
+mean_wait <- data %>% tidyr::drop_na(eth_recip) %>%
+  group_by(recip_state, eth_recip, algorithm) %>%
+  summarise(median = median(recip_listtime), n=n()) %>% 
+  group_by(eth_recip, algorithm) %>%
+  mutate( type=ifelse( median == min(median), "Minimum median","Other")) %>%
+  mutate( type=replace(type, median == max(median) , "Maximum median"))%>% 
+  as.data.frame()
+
+pop = data%>% tidyr::drop_na(eth_recip)  %>% group_by(algorithm, eth_recip) %>% summarise(n=n())
+pop$n <- paste("n=",pop$n, sep = "")
+
+
+ggc<- merge(data, mean_wait, by=c("recip_state", "eth_recip", "algorithm"), all = T) %>% filter(!is.na(eth_recip)) %>%
+  ggplot(aes(x=recip_state, y= recip_listtime, fill = type)) +   
+  geom_boxplot(alpha = 0.7) + coord_flip() + facet_grid(rows = vars(eth_recip), cols = vars(algorithm),  labeller = label_wrap_gen(width = 2, multi_line = TRUE))+
+  scale_fill_manual( values=c("#FF3333","#3366FF", "white", "grey")) +
+  scale_alpha_manual(values=c(1, 1, 0.04))+ scale_y_continuous(breaks = c(seq(0,10,1))) + 
+  geom_label(data=pop, mapping = aes(x = 1.5, y = 8, label =n),fill = "white",show.legend = FALSE) +
+  labs(
+        x ="States", y = "Time from listing to transplantation (years)" )  + theme_bw()+ theme( legend.position = "none")
+
+
+ggc
+
+
+```
+
+
+```{r}
+
+levels(data$recip_agegroups) <- c("0-18", "18-40", "40-60", "60+")
+data$recip_agegroups <- as.factor(data$recip_agegroups)
+
+mean_wait <- data %>%filter(recip_agegroups %in% c("18-40", "40-60", "60+"))%>%
+  group_by(recip_state, recip_agegroups, algorithm) %>%
+  summarise(median = median(recip_listtime),n=n()) %>% 
+  group_by(recip_agegroups, algorithm) %>%
+  mutate( type=ifelse( median == min(median), "Minimum Median","Other")) %>%
+  mutate( type=replace(type, median == max(median) , "Maximum Median"))%>% 
+  as.data.frame()
+
+pop = data%>% tidyr::drop_na(recip_agegroups)  %>% group_by(algorithm, recip_agegroups) %>% summarise(n=n())%>% filter(recip_agegroups %in% c( "18-40", "40-60", "60+"))
+pop$n <- paste("n=",pop$n, sep = "")
+
+levels(data$recip_agegroups) <- c("0-18", "18-40", "40-60", "60+")
+data$recip_agegroups <- as.factor(data$recip_agegroups)
+
+ggd<- merge(data, mean_wait, by=c("recip_state", "recip_agegroups", "algorithm"), all = T) %>% filter(recip_agegroups %in% c( "18-40", "40-60", "60+")) %>%
+  ggplot(aes(x=recip_state, y= recip_listtime, fill = type)) +   
+  geom_boxplot(alpha = 0.7) + coord_flip() + facet_grid(rows = vars(recip_agegroups), cols = vars(algorithm), scales = "free")+
+  scale_fill_manual( values=c("#FF3333","#3366FF", "white", "grey")) + scale_y_continuous(breaks = c(seq(0,10,1)))+
+  geom_label(data=pop, mapping = aes(x = 1.5, y = 8, label =n),fill = "white",show.legend = FALSE) +
+  scale_alpha_manual(values=c(1, 1, 0.04))+ labs( x ="States", y = "Time from listing to transplantation (years)") + theme_bw()+ theme(legend.position = "none")
+
+ggd
+
+```
+
+
+
+
+
+
+
+### Barplot of Waiting time
+
+```{r}
+
+reorder_flip = c( "NSW", "VIC", "QLD","WA" , "SA")
+reorder<- c( "SA", "WA", "QLD","VIC" , "NSW")
+data$recip_state = factor(data$recip_state, levels = reorder_flip)
+data$algorithm <- factor(data$algorithm, levels = c("State", "National"))
+
+
+data_combine <- data %>% mutate(algorithm = "Total")
+data_combined <- rbind(data, data_combine)
+data_combined$algorithm <- factor(data_combined$algorithm , levels = c("Total", "State", "National"))
+
+
+mean_wait <- rbind(data, data_combine) %>%  mutate( recip_waittime_log = log(recip_waittime) )%>%
+  group_by(recip_state, algorithm) %>%
+  summarise(median = median(recip_waittime), 
+            quants_25 = quantile(recip_waittime, probs = c(0.25)), 
+            quants_75 = quantile(recip_waittime, probs = c(0.75)),
+            n= n()) %>%
+  group_by(algorithm) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(~algorithm, scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 14), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 3, alpha = 0.7)+ labs( x ="States", y = "Waiting Time (years)")
+
+#ggsave("generalplotwait.pdf")
+
+mean_wait <- data %>%  mutate( recip_waittime_log = log(recip_waittime) )%>% filter(!is.na(PRA_cat)) %>%
+  mutate(PRA_cat = forcats::fct_explicit_na(PRA_cat)) %>%
+  group_by(recip_state, algorithm, PRA_cat) %>%
+  summarise(median = median(recip_waittime), 
+            quants_25 = quantile(recip_waittime, probs = c(0.25)), 
+            quants_75 = quantile(recip_waittime, probs = c(0.75)),
+            n= n()) %>%
+  group_by(algorithm,PRA_cat) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+gga2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(PRA_cat), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 12), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 3, alpha = 0.7)+ labs( x ="States", y = "Waiting Time (years)")
+
+levels(data$recip_agegroups) <- c("0-18", "18-40", "40-60", "60+")
+data$recip_agegroups <- as.factor(data$recip_agegroups)
+
+mean_wait <- data %>%  mutate( recip_waittime_log = log(recip_waittime) )%>%filter(recip_agegroups %in% c("18-40", "40-60", "60+"))%>%
+  group_by(recip_state, algorithm, recip_agegroups) %>%
+  summarise(median = median(recip_waittime), 
+            quants_25 = quantile(recip_waittime, probs = c(0.25)), 
+            quants_75 = quantile(recip_waittime, probs = c(0.75)), n= n()) %>%
+  group_by(algorithm,recip_agegroups) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+ggb2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(recip_agegroups), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 12), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4)+ geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 3, alpha = 0.7) + labs( x ="States", y = "Waiting Time (years)")
+
+mean_wait <- data %>%  mutate( recip_waittime_log = log(recip_waittime) )%>%
+  group_by(recip_state, algorithm, recip_sex) %>%
+  summarise(median = median(recip_waittime), 
+            quants_25 = quantile(recip_waittime, probs = c(0.25)), 
+            quants_75 = quantile(recip_waittime, probs = c(0.75)), n= n()) %>%
+  group_by(algorithm,recip_sex) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+ggc2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(recip_sex), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 12), aspect.ratio = 0.7) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 3, alpha = 0.7)+ labs( x ="States", y = "Waiting Time (years)")
+
+mean_wait <- data %>%  mutate( recip_waittime_log = log(recip_waittime))%>%filter(!is.na(eth_recip)) %>%
+  group_by(recip_state, algorithm, eth_recip) %>%
+  summarise(median = median(recip_waittime), 
+            quants_25 = quantile(recip_waittime, probs = c(0.25)), 
+            quants_75 = quantile(recip_waittime, probs = c(0.75)), n= n()) %>%
+  group_by(algorithm,eth_recip) %>%
+  mutate( type=ifelse( recip_state %in% c("NSW", "VIC"), "large", "small")) %>% as.data.frame()
+
+ggd2<-mean_wait %>% ggplot() + geom_col(aes(x=recip_state, y=median, fill = type), stat="identity", width=0.8) + facet_grid(cols = vars(eth_recip), rows = vars(algorithm), scales = "free")+
+  scale_fill_tableau() + theme_bw() + theme( legend.position = "none", text = element_text(size = 12), aspect.ratio = 1) + geom_errorbar(aes(x=recip_state, ymin=quants_25, ymax=quants_75),width=0.3,alpha = 0.4) + geom_text(aes(x=recip_state, y=quants_75 + 0.5,label = n), size = 3, alpha = 0.7)+ labs( x ="States", y = "Waiting Time (years)")
+
+
+#data[which(data$recip_state == "NSW" & data$eth_recip == "Indigenous Australians" & data$algorithm == "National"),] %>% dplyr::select(recip_state, eth_recip, algorithm, recip_listtime)
+
+
+gga2
+#ggsave("a2)wait.pdf")
+ggb2
+#ggsave("b2)wait.pdf")
+ggc2
+#ggsave("c2)wait.pdf")
+ggd2
+#ggsave("d2)wait.pdf")
+
+```
+
+
+
+
+
+
+
+
+
+
