@@ -17,49 +17,62 @@ output:
 library(readxl)
 library(dplyr)
 
+## The dataset patient consists of 58232 rows and 24 columns where each row represent all patient in the registry (note: includes patients on and off the waiting list) and each column represent demographical and clinical variables associated with the patient. 
+patients <- read.csv("./42510_paeds_allocation_project/patients.csv", na.strings=c("-" ," ", "","NA"))
+dim(patients)
 
-patients <- read.csv("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/42510_paeds_allocation_project/patients.csv", na.strings=c("-" ," ", "","NA"))
 
-donor <- read.csv("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/42510_paeds_allocation_project/donor.csv",na.strings=c("-" ," ", "","NA"))
 
-comorbidity <- read.csv("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/42510_paeds_allocation_project/comorbidity.csv", na.strings=c("-" ," ", "","NA"))
-
-transplants <- read.csv("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/42510_paeds_allocation_project/transplants.csv", na.strings=c("-" ," ", "","NA"))
-
-donor_state <- read_excel("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/transplants_donor_state.xlsx")
-
-# All the other information in this file `transplant_donor_state` is also contained in the `donor` file
+## The dataset donor consists of 14973 rows and 42 columns where each row represent all donors of kidneys (deceased and living) and the associated graft number of kidneys donated by the donor for each recipient and each column represent demographical and clinical variables associated with the donor
+donor <- read.csv("./42510_paeds_allocation_project/donor.csv",na.strings=c("-" ," ", "","NA"))
+dim(donor)
+## The dataset donor_state consists of 14973 rows and 30 columns where each row and column are like the donor dataset i.e. All other information in`transplant_donor_state` is also contained in the `donor` file
+donor_state <- read_excel("./42510_paeds_allocation_project/transplants_donor_state.xlsx")
+dim(donor_state)
 donor_state <- donor_state[,c("id","transplantid","donorcentrestate")] 
 donor_state[donor_state=="-"] <- NA
 
-waitlist <- read.csv("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/42510_paeds_allocation_project/waitlist.csv",na.strings=c("-" ," ", "","NA"))
+
+
+## The dataset transplants consists of 14973 rows and 29 columns where each row represent a recipient to a kidney transplant and each column represent clinical variables related to the transplant
+transplants <- read.csv("./42510_paeds_allocation_project/transplants.csv", na.strings=c("-" ," ", "","NA"))
+dim(transplants)
+
+
+## The dataset comorbidity consists of 447671 rows and 10 columns where each row represent every recording of comorbidity for each patient and each column represent the comorbidity and date recorded
+comorbidity <- read.csv("./42510_paeds_allocation_project/comorbidity.csv", na.strings=c("-" ," ", "","NA"))
+dim(comorbidity)
+
+
+
+
+
+## The dataset waitlist consists of 41765 rows and 6 columns where each row represent the waitlist details for each patient and each column represent the waitlist details
+waitlist <- read.csv("./42510_paeds_allocation_project/waitlist.csv",na.strings=c("-" ," ", "","NA"))
+dim(waitlist)
+
+
+
+## Brief look at the structure and variables in the data 
+colnames(donor)
+colnames(patients)
+colnames(donor_state)
+dim(donor_state)
+print(paste("donor=",dim(donor))) 
 
 ```
 
-```{r, eval=FALSE}
-drugdose <- read.csv("42510_paeds_allocation_project/drugdose.csv", na.strings=c("","NA"))
 
-
-rejections <- read.csv("42510_paeds_allocation_project/rejections.csv", na.strings=c("","NA"))
-
-therapy <- read.csv("42510_paeds_allocation_project/therapy.csv", na.strings=c("","NA"))
-
-treatments <- read.csv("42510_paeds_allocation_project/treatments.csv", na.strings=c("","NA"))
-
-```
-
-# Adding the Donor States + combining the donor and recipient (patient) data 
+# Adding the donor states and combining the donor and recipient (patient) data 
 
 ```{r}
-#colnames(donor)
-#colnames(patients)
-#colnames(donor_state)
-dim(donor_state)
-print(paste("donor=",dim(donor)))
+# Merge the donor states dataset to the donor dataset
 data_d<- merge(donor_state, donor, by=c("id","transplantid"))
+dim(data_d) #14973 x 43
+
+# Merge the donor and recipient dataset
 data_rd <- merge(data_d, patients, by = "id")
-dim(data_d)
-print(paste("data_rd=",dim(data_rd)))
+print(paste("data_rd=",dim(data_rd))) ## 14973 x 66
 
 
 ```
@@ -67,20 +80,20 @@ print(paste("data_rd=",dim(data_rd)))
 # Adding the transplant data 
 
 ```{r}
-#colnames(transplants)
-#colnames(data_rd)
-print(paste("transplants=",dim(transplants)))
+print(paste("transplants=",dim(transplants))) # 14973 x 29
+
+# Merge transplant data to the donor-recipient data
 data_rdtx <- merge(data_rd, transplants, by= c("id",  "transplantid", "graftno", "transplantdate", "donorsourcecode"))
 data_rdtx <- data_rdtx %>% 
   mutate(transplantdate = as.Date(transplantdate,  format="%d%b%Y"),
         rrtstartdate = as.Date(rrtstartdate, format="%d%b%Y")) %>% 
-  mutate(recip_waittime = transplantdate - rrtstartdate)
+  mutate(recip_waittime = transplantdate - rrtstartdate) # calculate the recipient waittime
           
           
-print(paste("data_rdtx=",dim(data_rdtx)))
+print(paste("data_rdtx=",dim(data_rdtx))) # 14973 x 91
 
-table(table(data_rdtx$ddonid))
-length(data_rdtx$ddonid)
+table(table(data_rdtx$ddonid)) # 1545 single kidney donors and 3877 double kidney donors
+
 
 
 ```
@@ -91,19 +104,24 @@ length(data_rdtx$ddonid)
 ```{r}
 #colnames(comorbidity)
 #colnames(data_rdtx)
-print(paste("comorbidity=",dim(comorbidity)))
-#there are 30 recordings for each patient - we take the recordings for when max(codate < tx_date)
+print(paste("comorbidity=",dim(comorbidity))) # 447671 x 10
 
+# Merge comorbidity data to the dataset 
 data_rdtxc <- merge(data_rdtx, comorbidity, by= c("id"), all.x= TRUE)
 data_rdtxc <- data_rdtxc %>% 
   mutate(transplantdate = as.Date(transplantdate, format="%d%b%Y"),
-                                  codate = as.Date(codate, format="%d%b%Y")) 
+                 codate = as.Date(codate, format="%d%b%Y")) 
 
+# Since there are 30 recordings for each patient - we take the recordings for when max(codate < tx_date) i.e. the closest comorbidity recorded date (codate) to the transplant date
+data_rdtxc <- data_rdtxc %>% 
+  group_by(id, graftno, transplantdate) %>% 
+  mutate(diff = transplantdate - codate) %>% 
+  filter(diff>=0) %>%   # extract when transplant date after codate
+  group_by(id, graftno) %>% 
+  filter(diff == min(diff)) %>% # minimum difference between transplant and codate
+  mutate(recip_waittime = as.numeric(as.character(recip_waittime)))
 
-data_rdtxc <- data_rdtxc %>% group_by(id, graftno, transplantdate) %>% 
-    mutate(diff = transplantdate - codate) %>% filter(diff>=0) %>% group_by(id, graftno) %>% filter(diff == min(diff)) %>%mutate(recip_waittime = as.numeric(as.character(recip_waittime)))
-
-print(paste("data_rdtxc=",dim(data_rdtxc)))
+print(paste("data_rdtxc=",dim(data_rdtxc))) # 14973 x 101
 
 
 
@@ -112,45 +130,21 @@ print(paste("data_rdtxc=",dim(data_rdtxc)))
 # Adding the waitlist data
 
 ```{r}
-waitlist <- read.csv("C:/Users/Anne/Dropbox (Sydney Uni Student)/SallyChen/PaedWork/42510_paeds_allocation_project/waitlist.csv",na.strings=c("-" ," ", "","NA"))
-# waitlist$waitorgans = factor(waitlist$waitorgans, levels=c(levels(waitlist$waitorgans), "kidneys"))
-# waitlist$waitorgans[is.na(waitlist$waitorgans)] <- "kidneys"
-
-waitlist_data <- waitlist %>%dplyr::select(id, waitorgans, waitdate, waitstatus) %>% filter(waitstatus == "Active")
+# Extract only Active recipient dates
+waitlist_data <- waitlist %>% dplyr::select(id, waitorgans, waitdate, waitstatus) %>% filter(waitstatus == "Active")
 
 # Extracting the first "Active" date for the single transplant recipients 
 waitdata <- waitlist_data[!duplicated(waitlist_data$id), ]
 
-data_rdtxcw <- merge(data_rdtxc,waitdata, by = "id" ) %>% mutate(waitdate = lubridate::dmy(waitdate), recip_listtime = as.numeric(transplantdate - waitdate))
+# Merge waitlist data with the dataset
+data_rdtxcw <- merge(data_rdtxc,waitdata, by = "id" ) %>% mutate(waitdate = lubridate::dmy(waitdate))
 
-print(paste("data_rdtxcw=",dim(data_rdtxcw)))
+print(paste("data_rdtxcw=",dim(data_rdtxcw))) # 7740 x 104
 
-
-
-```
-
-
-# Extracting Deceased Donors, (keeping multiple transplant) and transplant year 2008+
-
-This is done twice, once for the data set and ones for the waitlist
-
-```{r }
-data_rdtxcw_final <- data_rdtxcw  %>%
-  filter(donorsourcecode == "Deceased", 
-          transplantdate > "2008-09-18", 
-         is.na(waitorgans),
-         waitdate > "2006-06-28", 
-         rrtstartdate > "2006-06-28"
-         )%>%
-  as.data.frame()
-data_rdtxcw_final <- data_rdtxcw_final %>% mutate_if(is.factor, as.character) %>% mutate(id = as.character(id)) 
-
-data_rdtxcw_final$waitorgans <- "kidneys"
-
-print(paste("data_rdtxcw_final=",dim(data_rdtxcw_final)))
 
 
 ```
+
 
 
 # Calculating epts and kdri
@@ -218,11 +212,8 @@ summary(data_rdtxcw$recip_epts)
 # Add Variable names 
 
 ```{r}
-
-#colnames(data_rdtxcw_final)
-
-# Add the variable names
-data_name_dictionary <- read_excel("data_name_dictionary.xlsx")
+# Adding the variable names
+data_name_dictionary <- read_excel("./42510_paeds_allocation_project/data_name_dictionary.xlsx")
 index <- which(is.na(data_name_dictionary$new_name))
 
 names(data_rdtxcw)[names(data_rdtxcw) %in% c(data_name_dictionary$raw_data_name[-index])] <- c(data_name_dictionary$new_name[-index])
@@ -234,160 +225,58 @@ names(data_rdtxcw)[names(data_rdtxcw) %in% c(data_name_dictionary$raw_data_name[
 
 ```{r}
 # Extracting the second/third "Active" date for multiple transplant 
-
-multi<-names(which(table(data_rdtxcw$recip_id) == 2))
-
-length(multi)
-
-multi_transplant <-data_rdtxcw[data_rdtxcw$recip_id %in% multi,] %>% dplyr::select(recip_id,tx_date, recip_graftno, recip_liststartdate) %>% group_by(recip_id) %>% arrange(recip_graftno, .by_group = TRUE)
-
-waitdata <- waitlist_data[waitlist_data$id %in% multi,] %>% mutate(waitdate = lubridate::dmy(waitdate))
+multi<-names(which(table(data_rdtxcw$recip_id) >= 2))
+length(multi) #498 multiple transplants
 
 
+# Extracting the recipients with multiple transplants from the main dataset and waitlist dataset
+multi_transplant <-data_rdtxcw[data_rdtxcw$recip_id %in% multi,] %>% 
+  dplyr::select(recip_id,tx_date, recip_graftno, recip_liststartdate) %>% 
+  group_by(recip_id) %>% 
+  arrange(recip_graftno, .by_group = TRUE)
+waitdata <- waitlist_data[waitlist_data$id %in% multi,] %>% 
+  mutate(waitdate = lubridate::dmy(waitdate))
+
+# Merging datasets and extracting the first minimum eligible list date before the 2nd transplant but after the 1st transplant
 waitdata <- merge(multi_transplant, waitdata, by.x = "recip_id", by.y = "id") %>% 
   mutate(diff = as.numeric(waitdate - tx_date)) %>% 
   group_by(recip_id) %>% 
   mutate(chosen = ifelse(diff >0, "eligible", "."))%>% 
   filter(chosen =="eligible") %>% 
   group_by(recip_id) %>% 
-  mutate(newdate = min(waitdate))
+  mutate(newdate = min(waitdate)) # minimum time between the list date and the 1st transplant, but after the 1st transplant and before the 2nd. 
 
+# Fixing the list start date for the multiple transplants
 for(i in multi){
   data_rdtxcw[data_rdtxcw$recip_id == i & data_rdtxcw$recip_graftno ==2, "recip_liststartdate"] <- waitdata[waitdata$recip_id ==i, ]$newdate[1]
 }
 
-dim(data_rdtxcw)
-
-index<- which(is.na(data_rdtxcw$tx_organ))
-data_rdtxcw$tx_organ[index] <- "kidneys"
+dim(data_rdtxcw) #7740 x 107
 
 saveRDS(data_rdtxcw, file = "data_2017_full.rds")
+
 
 ```
 
 
-# Extracting Deceased Donors, (keeping multiple transplant) and transplant year 2008+
+# Extracting Deceased Donors, (keeping multiple transplant) and transplant and RRT year 2008/2006+
 
 ```{r }
+
+## Extract the subset desired: deceased donors, kidney only, within certain time frame 
 data_rdtxcw_final <- data_rdtxcw  %>%
   filter(donor_source == "Deceased", 
           tx_date > "2008-09-18", 
          is.na(tx_organ),
          recip_liststartdate > "2006-06-28", 
-         recip_rrtstartdate > "2006-06-28"
-         )%>%
+         recip_rrtstartdate > "2006-06-28")%>% 
+  mutate(recip_listtime = as.numeric(tx_date - recip_liststartdate))%>% # calculate the recipient list time 
   as.data.frame()
+
 data_rdtxcw_final <- data_rdtxcw_final %>% mutate_if(is.factor, as.character) %>% mutate(recip_id = as.character(recip_id)) 
 data_rdtxcw_final$tx_organ <- "kidneys"
 
-print(paste("data_rdtxcw_final=",dim(data_rdtxcw_final)))
-saveRDS(data_rdtxcw_final, "data_2017.rds")
-
-multi_sub<-names(which(table(data_rdtxcw_final$recip_id) == 2))
-length(multi_sub)
-```
-
-# Extracting the waitlist dynamics 
-
-```{r}
-# Extract the first active case
-active <- waitlist %>% 
-    filter(waitstatus == "Active", is.na(waitorgans)) %>% 
-    group_by(id) %>% 
-    filter(waitseq == min(waitseq))
-
-# extract all the off list cases 
-off <- waitlist %>% 
-    filter(waitstatus == "Off List", is.na(waitorgans)) 
-
-#note that some people never off the last after the active date
-dynamics = merge(active, off, by = c("id", "waitstat", "waitorgans"), all.x = TRUE) 
-dim(dynamics)
-dynamics <- dynamics %>% group_by(id) %>% mutate(waitseq.x = as.numeric(waitseq.x),
-waitseq.y = as.numeric(waitseq.y), diff = waitseq.y - waitseq.x) %>% ungroup()%>% mutate(id = as.character(id)) %>% as.data.frame()
-dim(dynamics)
-
-index <- which(dynamics$diff < 0)
-dynamics[index,7:9] <- NA
-length(unique(dynamics$id))
-
-#extracting the people who were never off 
-no_off <- rbind(dynamics[which(is.na(dynamics$diff)),], dynamics[which(dynamics$diff %in% c(1)),] ) #never off 
-
-
-############# SINGLE RECORD ########### from not NA 
-check_dt <- dynamics[which(!(dynamics$id %in% no_off$id)),]
-check_dt3 <- check_dt[which(check_dt$id %in% names(which(table(check_dt$id) ==1))),] #one record, imputed censored/ dead (survival)
-
-
-######## MULTIPLE RECORD ########### check2 and check3 are mutually exclusive
-check_dt2 <- check_dt[which(check_dt$id %in% names(which(table(check_dt$id) >1))),] #multiple record
-check_dt4 <- check_dt2[check_dt2$diff >0, ] # clean multiple record
-check_dt5 <- check_dt4[which(check_dt4$id %in% names(which(table(check_dt4$id) ==1))),] #multiple, imputed censored/dead (survival)
-
-check_dt6 <- check_dt4[which(!(check_dt4$id %in% names(which(table(check_dt4$id) ==1)))),] # extract unique
-check_dt6 <- check_dt6 %>% group_by(id) %>% filter(waitseq.y == min(waitseq.y)) %>% as.data.frame()
-
-ha <- rbind(no_off, check_dt3, check_dt5, check_dt6)
-dim(ha)
-length(unique(ha$id))
-
-############################################
-
-miss<-dynamics[which(!(dynamics$id %in% ha$id)),] 
-miss <- miss[!duplicated(miss$id),]
-dynamics <- rbind(ha, miss)
-dim(dynamics)
-length(unique(dynamics$id))
- #for survival
-
-dynamics<- dynamics%>%  
-    mutate(waitdate.x = lubridate::dmy(waitdate.x), 
-           waitdate.y = lubridate::dmy(waitdate.y))
-
-index <- which(is.na(dynamics$waitdate.y))
-dynamics$waitdate.y[index] <- as.character("2018-01-01")
-dynamics$waitstatus.y <- as.character(dynamics$waitstatus.y)
-dynamics$waitstatus.y[index] <- c("imputed censored")
-
-dynamics <- dynamics %>% mutate(time = waitdate.y - waitdate.x)
-
-saveRDS(dynamics, file = "data_2017dynamics_new.rds")
-
-
-d1 <- dynamics[,c(1:6, 11)]
-colnames(d1) <- c("id", "waitstat", "waitorgans", "waitseq", "waitdate", "waitstatus", "time")
-
-d2<- dynamics[,c(1:3,7:9,11)]
-colnames(d2) <- c("id", "waitstat", "waitorgans", "waitseq", "waitdate", "waitstatus", "time")
-dynamics <- rbind(d1, d2)
-dim(dynamics)
-
-dynamics_c = merge(comorbidity, dynamics, by = c("id")) %>% 
-    mutate(codate = as.Date(codate, format="%d%b%Y"))%>% tidyr::drop_na(waitstatus)
-dim(dynamics_c)
-
-class(dynamics_c$waitdate)
-class(dynamics_c$codate)
-
-dynamics_wl <- dynamics_c %>% mutate(diff = waitdate - codate )%>% filter(diff > 0) %>% group_by(id,waitstatus) %>% filter(diff == min(diff)) #changed this 30/09/2020, before it was slice(which.max)
-
-dim(dynamics_wl)
-
-waitlist_dyn = merge(patients,dynamics_wl, by = "id")
-dim(waitlist_dyn)
-
-waitlist_dyn$waitorgans <- "kidneys"
-
-
-saveRDS(waitlist_dyn, file = "data_2017dynamics.rds")
-
-```
-
-```{r}
-colnames(data_rdtxcw)
-
-merged <- merge(data_rdtxcw[,-c(101, 102, 103, 104, 105)], dynamics, by.x = c("recip_id"), by.y = "id", all.x = TRUE)
-summary(as.factor(merged$waitstatus.y))
+print(paste("data_rdtxcw_final=",dim(data_rdtxcw_final))) # 3981 x 107 
+saveRDS(data_rdtxcw_final, "data_2017.rds") 
 
 ```
