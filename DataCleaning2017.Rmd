@@ -17,16 +17,21 @@ output:
 library(readxl)
 library(dplyr)
 
-## The dataset patient consists of 58232 rows and 24 columns where each row represent all patient in the registry (note: includes patients on and off the waiting list) and each column represent demographical and clinical variables associated with the patient. 
+## The dataset patient consists of 58232 rows and 24 columns where each row represent all patient in the registry 
+# (note: includes patients on and off the waiting list) and each column represent demographical 
+# and clinical variables associated with the patient. 
 patients <- read.csv("./42510_paeds_allocation_project/patients.csv", na.strings=c("-" ," ", "","NA"))
 dim(patients)
 
 
 
-## The dataset donor consists of 14973 rows and 42 columns where each row represent all donors of kidneys (deceased and living) and the associated graft number of kidneys donated by the donor for each recipient and each column represent demographical and clinical variables associated with the donor
+## The dataset donor consists of 14973 rows and 42 columns where each row represent all donors of kidneys 
+# (deceased and living) and the associated graft number of kidneys donated by the donor for each recipient and 
+# each column represent demographical and clinical variables associated with the donor
 donor <- read.csv("./42510_paeds_allocation_project/donor.csv",na.strings=c("-" ," ", "","NA"))
 dim(donor)
-## The dataset donor_state consists of 14973 rows and 30 columns where each row and column are like the donor dataset i.e. All other information in`transplant_donor_state` is also contained in the `donor` file
+## The dataset donor_state consists of 14973 rows and 30 columns where each row and column are like the donor 
+# dataset i.e. All other information in`transplant_donor_state` is also contained in the `donor` file
 donor_state <- read_excel("./42510_paeds_allocation_project/transplants_donor_state.xlsx")
 dim(donor_state)
 donor_state <- donor_state[,c("id","transplantid","donorcentrestate")] 
@@ -34,12 +39,14 @@ donor_state[donor_state=="-"] <- NA
 
 
 
-## The dataset transplants consists of 14973 rows and 29 columns where each row represent a recipient to a kidney transplant and each column represent clinical variables related to the transplant
+## The dataset transplants consists of 14973 rows and 29 columns where each row represent a recipient to a kidney 
+# transplant and each column represent clinical variables related to the transplant
 transplants <- read.csv("./42510_paeds_allocation_project/transplants.csv", na.strings=c("-" ," ", "","NA"))
 dim(transplants)
 
 
-## The dataset comorbidity consists of 447671 rows and 10 columns where each row represent every recording of comorbidity for each patient and each column represent the comorbidity and date recorded
+## The dataset comorbidity consists of 447671 rows and 10 columns where each row represent every recording of 
+# comorbidity for each patient and each column represent the comorbidity and date recorded
 comorbidity <- read.csv("./42510_paeds_allocation_project/comorbidity.csv", na.strings=c("-" ," ", "","NA"))
 dim(comorbidity)
 
@@ -47,7 +54,8 @@ dim(comorbidity)
 
 
 
-## The dataset waitlist consists of 41765 rows and 6 columns where each row represent the waitlist details for each patient and each column represent the waitlist details
+## The dataset waitlist consists of 41765 rows and 6 columns where each row represent the waitlist details 
+# for each patient and each column represent the waitlist details
 waitlist <- read.csv("./42510_paeds_allocation_project/waitlist.csv",na.strings=c("-" ," ", "","NA"))
 dim(waitlist)
 
@@ -112,7 +120,8 @@ data_rdtxc <- data_rdtxc %>%
   mutate(transplantdate = as.Date(transplantdate, format="%d%b%Y"),
                  codate = as.Date(codate, format="%d%b%Y")) 
 
-# Since there are 30 recordings for each patient - we take the recordings for when max(codate < tx_date) i.e. the closest comorbidity recorded date (codate) to the transplant date
+# Since there are 30 recordings for each patient - we take the recordings for when max(codate < tx_date) 
+# i.e. the closest comorbidity recorded date (codate) to the transplant date
 data_rdtxc <- data_rdtxc %>% 
   group_by(id, graftno, transplantdate) %>% 
   mutate(diff = transplantdate - codate) %>% 
