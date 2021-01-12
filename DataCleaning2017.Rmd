@@ -289,3 +289,41 @@ print(paste("data_rdtxcw_final=",dim(data_rdtxcw_final))) # 3981 x 107
 saveRDS(data_rdtxcw_final, "data_2017.rds") 
 
 ```
+
+
+# Waitlist only 
+
+```{r}
+waitlist_active <- waitlist[waitlist$waitstatus == "Active" & is.na(waitlist$waitorgans),]
+waitlist_active <- waitlist_active[!(waitlist_active$id %in% data_rdtxcw$recip_id),]
+waitlist_active<- waitlist_active[!duplicated(waitlist_active$id),]
+
+active_patients <- merge(waitlist_active, patients, by.x="id", by.y = "id")
+
+active_patients$rrtstartdate<- lubridate::dmy(active_patients$rrtstartdate)
+active_patients$waitdate<- lubridate::dmy(active_patients$waitdate)
+max(data_rdtxcw$tx_date)
+
+
+active_patients <- active_patients %>% filter(rrtstartdate > "2006-06-28", 
+                                              waitdate > "2006-06-28" ) %>% 
+  mutate(recip_waittime = as.numeric(as.Date("2017-12-31") - rrtstartdate)/365,
+         recip_listtime = as.numeric(as.Date("2017-12-31") - waitdate)/365)
+
+
+active_patients %>% ggplot(aes(x=recip_listtime)) +geom_density(aes(fill = waitstat), alpha = 0.5) + facet_grid(~waitstat)+ labs(y="Density", x="Time from first active on list to last recorded date 2018 (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
+
+active_patients %>% ggplot(aes(x=recip_waittime)) +geom_density(aes(fill = waitstat), alpha = 0.5) + facet_grid(~waitstat)+ labs(y="Density", x="Waiting Time to 2018 (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
+
+
+active_patients %>% 
+  group_by(waitstat) %>% 
+  summarise( mean_list = mean(recip_listtime), 
+             median_list = median(recip_listtime), 
+             mean_wait = mean(recip_waittime), 
+             median_wait = median(recip_waittime), 
+             n=n())
+
+
+
+```
