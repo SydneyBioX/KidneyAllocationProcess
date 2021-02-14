@@ -94,7 +94,7 @@ print(paste("transplants=",dim(transplants))) # 14973 x 29
 data_rdtx <- merge(data_rd, transplants, by= c("id",  "transplantid", "graftno", "transplantdate", "donorsourcecode"))
 data_rdtx <- data_rdtx %>% 
   mutate(transplantdate = as.Date(transplantdate,  format="%d%b%Y"),
-        rrtstartdate = as.Date(rrtstartdate, format="%d%b%Y")) %>% 
+        rrtstartdate = lubridate::dmy(rrtstartdate)) %>% 
   mutate(recip_waittime = transplantdate - rrtstartdate) # calculate the recipient waittime
           
           
@@ -227,7 +227,6 @@ index <- which(is.na(data_name_dictionary$new_name))
 
 names(data_rdtxcw)[names(data_rdtxcw) %in% c(data_name_dictionary$raw_data_name[-index])] <- c(data_name_dictionary$new_name[-index])
 
-
 ```
 
 # Fixing the recip_liststartdate for multiple deceased donor transplants
@@ -271,8 +270,8 @@ saveRDS(data_rdtxcw, file = "data_2017_full.rds")
 # Extracting Deceased Donors, (keeping multiple transplant) and transplant and RRT year 2008/2006+
 
 ```{r }
-
 ## Extract the subset desired: deceased donors, kidney only, within certain time frame 
+
 data_rdtxcw_final <- data_rdtxcw  %>%
   filter(donor_source == "Deceased", 
           tx_date > "2008-09-18", 
@@ -287,6 +286,7 @@ data_rdtxcw_final$tx_organ <- "kidneys"
 
 print(paste("data_rdtxcw_final=",dim(data_rdtxcw_final))) # 3981 x 107 
 saveRDS(data_rdtxcw_final, "data_2017.rds") 
+
 
 ```
 
@@ -311,18 +311,8 @@ active_patients <- active_patients %>% filter(rrtstartdate > "2006-06-28",
          recip_listtime = as.numeric(as.Date("2017-12-31") - waitdate)/365)
 
 
-active_patients %>% ggplot(aes(x=recip_listtime)) +geom_density(aes(fill = waitstat), alpha = 0.5) + facet_grid(~waitstat)+ labs(y="Density", x="Time from first active on list to last recorded date 2018 (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
+saveRDS(active_patients, "active_patients.rds") 
 
-active_patients %>% ggplot(aes(x=recip_waittime)) +geom_density(aes(fill = waitstat), alpha = 0.5) + facet_grid(~waitstat)+ labs(y="Density", x="Waiting Time to 2018 (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
-
-
-active_patients %>% 
-  group_by(waitstat) %>% 
-  summarise( mean_list = mean(recip_listtime), 
-             median_list = median(recip_listtime), 
-             mean_wait = mean(recip_waittime), 
-             median_wait = median(recip_waittime), 
-             n=n())
 
 
 
