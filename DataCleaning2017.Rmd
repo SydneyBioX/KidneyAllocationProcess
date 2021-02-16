@@ -314,6 +314,56 @@ active_patients <- active_patients %>% filter(rrtstartdate > "2006-06-28",
 saveRDS(active_patients, "active_patients.rds") 
 
 
+```
+
+
+# Rate of removal from waitlist 
+
+```{r}
+waitlist$waityear <- lubridate::year(lubridate::dmy(waitlist$waitdate))
+waitlist_removal <- waitlist[which(is.na(waitlist$waitorgans)),]
+
+waitlist_removal%>% group_by(id, waitstat, waityear) %>% summarise(n=n()) %>% group_by( waitstat, waityear) %>% summarise(n=n())%>% ggplot(aes(x=waitstat, y=n, fill=waitstat)) + 
+geom_col() + facet_wrap(~waityear)
+
 
 
 ```
+
+
+
+# Mortality on the waitlist 
+
+```{r}
+wait_p = merge(waitlist, patients, by = "id")
+
+index <- which(!is.na(wait_p$deathdate))
+wait_p_death = wait_p[index,]
+
+
+index <- which(!(wait_p_death$id %in% transplants$id))
+wait_p_death<-wait_p_death[index,]
+
+saveRDS(wait_p_death, "wait_p_death.rds") 
+
+```
+
+
+```{r}
+
+old_data <- data_rdtxcw  %>%
+  filter(donor_source == "Deceased", 
+          tx_date < "2008-09-18", 
+         is.na(tx_organ))%>% 
+  mutate(recip_listtime = as.numeric(tx_date - recip_liststartdate))%>% # calculate the recipient list time 
+  as.data.frame()
+
+old_data <- old_data %>% mutate_if(is.factor, as.character) %>% mutate(recip_id = as.character(recip_id)) 
+old_data$tx_organ <- "kidneys"
+
+print(paste("old_data=",dim(old_data))) # 3981 x 107 
+saveRDS(old_data, "old_data.rds") 
+
+
+```
+

@@ -1,0 +1,184 @@
+---
+title: "Untitled"
+author: "Anne"
+date: "17/02/2021"
+output: html_document
+---
+
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
+
+```
+
+
+```{r}
+library(readxl)
+library(kableExtra)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(ggpubr)
+library(ggthemes)
+library("RColorBrewer")
+
+data = readRDS("./data_2017.rds") 
+
+
+```
+
+
+```{r}
+data$recip_agegroups <- cut(data$recip_age, 
+                   breaks=c(0, 18, 40, 60, Inf), right = FALSE)
+
+data$PRA_cat <- cut(data$recip_pra, 
+                   breaks=c(0, 50, 80, Inf), right = FALSE)
+
+index <- which(data$recip_state %in% c("NZ", NA) | data$donor_state %in% c("NZ", NA) )
+data <- data[-index,] %>% as.data.frame()
+
+
+tx_donor <- as.character(unlist(data$donor_state))
+data$tx_donor<- sapply(tx_donor, function(x) switch(as.character(x),
+                                              NSW = "NSW", ACT = "NSW",
+                                              VIC = "VIC", TAS = "VIC",
+                                              SA = "SA", NT = "SA",
+                                              WA = "WA", QLD = "QLD"))
+
+
+
+data <- data %>% 
+  mutate(recip_listtime = as.numeric(as.character(recip_listtime))/365,
+         recip_waittime = as.numeric(as.character(recip_waittime))/365,
+        tx_donor = as.factor(as.character(tx_donor))) %>%
+  mutate(eth_recip = ifelse(recip_eth_detailed == "Caucasoid", "European", "Other"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "Australian"), "European"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "North American"), "European"),
+         eth_recip = replace(eth_recip, recip_eth_detailed== "Oceanian - Australian Aboriginal" |  str_detect(recip_eth_detailed, "Torre"),"Indigenous Australians"),
+         eth_recip = replace(eth_recip, str_detect(recip_eth_detailed, "European"), "European"), 
+         eth_recip = as.factor(eth_recip),
+         
+         eth_donor = ifelse(donor_eth_code == "Caucasoid", "European", "Other"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "Australian"), "European"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "North American"), "European"),
+         eth_donor = replace(eth_donor, donor_eth_code== "Oceanian - Australian Aboriginal" |  str_detect(donor_eth_code, "Torre"),  "Indigenous Australians"),
+         eth_donor = replace(eth_donor, str_detect(donor_eth_code, "European"), "European"), 
+         eth_donor = as.factor(eth_donor))%>% mutate(graft_cat = ifelse(recip_graftno == 1, "1", "2+")) %>%
+  as.data.frame()
+#data %>% dplyr::select(recip_eth_detailed, eth_recip,donor_eth_code, eth_donor )
+
+
+```
+
+
+
+# Table of characteristics by state
+
+```{r}
+
+col_title <- c("Group", "NSW", "VIC","QLD", "SA", "WA")
+
+sex_long <- data %>% 
+  group_by(recip_state, recip_sex) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+sex_wide <- tidyr::pivot_wider(sex_long, names_from = recip_state, values_from = n)
+colnames(sex_wide) <- col_title
+sex_wide <- cbind( Characteristics= c("Sex (n,%)", rep(" ", nrow(sex_wide)-1)), sex_wide)
+
+
+
+PRA_long <- data %>% 
+  group_by(recip_state, PRA_cat) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+PRA_wide <- tidyr::pivot_wider(PRA_long, names_from = recip_state, values_from = n)
+colnames(PRA_wide) <- col_title
+PRA_wide <- cbind( Characteristics= c("PRA Group (n,%)", rep(" ", nrow(PRA_wide)-1)), PRA_wide)
+
+
+blg_long <- data %>% 
+  group_by(recip_state, recip_blgroup) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+blg_wide <- tidyr::pivot_wider(blg_long, names_from = recip_state, values_from = n)
+colnames(blg_wide) <- col_title
+blg_wide <- cbind( Characteristics= c("Blood Group", rep(" ", nrow(blg_wide)-1)), blg_wide)
+
+
+eth_long<- data %>% 
+  group_by(recip_state, eth_recip) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+eth_wide <- tidyr::pivot_wider(eth_long, names_from = recip_state, values_from = n)
+colnames(eth_wide) <- col_title
+eth_wide <- cbind( Characteristics= c("Ethicity (n,%)", rep(" ", nrow(eth_wide)-1)), eth_wide)
+
+
+age_long <- data %>% 
+  group_by(recip_state, recip_agegroups) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+age_wide <- tidyr::pivot_wider(age_long, names_from = recip_state, values_from = n)
+colnames(age_wide) <- col_title
+age_wide <- cbind( Characteristics= c("Age Group (n,%)", rep(" ", nrow(age_wide)-1)), age_wide)
+
+
+diabetes_long <- data %>% 
+  group_by(recip_state, diabetescode_text) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+diabetes_wide <- tidyr::pivot_wider(diabetes_long, names_from = recip_state, values_from = n)
+colnames(diabetes_wide) <- col_title
+diabetes_wide <- cbind( Characteristics= c("Diabetes (n,%)", rep(" ", nrow(diabetes_wide)-1)), diabetes_wide)
+
+
+
+lung_long <- data %>% 
+  group_by(recip_state, recip_lung) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+lung_wide <- tidyr::pivot_wider(lung_long, names_from = recip_state, values_from = n)
+colnames(lung_wide) <- col_title
+lung_wide <- cbind( Characteristics= c("Lung Disease (n,%)", rep(" ", nrow(lung_wide)-1)), lung_wide)
+
+
+pvd_long <- data %>% 
+  group_by(recip_state, recip_pvd) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+pvd_wide <- tidyr::pivot_wider(pvd_long, names_from = recip_state, values_from = n)
+colnames(pvd_wide) <- col_title
+pvd_wide <- cbind( Characteristics= c("Peripheral Vascular Disease (n,%)", rep(" ", nrow(pvd_wide)-1)), pvd_wide)
+
+
+cvd_long <- data %>% 
+  group_by(recip_state, recip_cvd) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+cvd_wide <- tidyr::pivot_wider(cvd_long, names_from = recip_state, values_from = n)
+colnames(cvd_wide) <- col_title
+cvd_wide <- cbind( Characteristics= c("Cerebrovascular Disease (n,%)", rep(" ", nrow(cvd_wide)-1)), cvd_wide)
+
+
+coronary_long <- data %>% 
+  group_by(recip_state, recip_coronary) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+coronary_wide <- tidyr::pivot_wider(coronary_long, names_from = recip_state, values_from = n)
+colnames(coronary_wide) <- col_title
+coronary_wide <- cbind( Characteristics= c("Coronary artery Disease (n,%)", rep(" ", nrow(coronary_wide)-1)), coronary_wide)
+
+
+
+#colnames(data)
+
+characteristics <- rbind(
+  sex_wide,
+  age_wide, 
+  blg_wide, 
+  eth_wide,
+  PRA_wide,
+  diabetes_wide, 
+  lung_wide, 
+  cvd_wide, 
+  pvd_wide, 
+  coronary_wide
+) %>% tidyr::drop_na(Group)
+
+#characteristics <- na.omit(characteristics)
+kable(characteristics)
+```

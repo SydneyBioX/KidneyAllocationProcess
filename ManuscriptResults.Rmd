@@ -89,13 +89,15 @@ table(original_score < 54000000)
 data$algorithm <- ifelse(original_score >= 54000000,
                             "National", "State")
 
+max(data$tx_date)
 ```
 # Tables
 
 ```{r}
 data %>% group_by(algorithm, recip_state) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n))
 
-data %>% group_by(algorithm, PRA_cat, recip_state) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n)) %>% filter(PRA_cat == "80+")
+data %>% group_by(algorithm, PRA_cat, recip_state) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n)) %>% filter(PRA_cat == "[80,Inf)")
+
 
 data %>% group_by(recip_sex, PRA_cat) %>% summarise(n=n(), med = median(recip_listtime), range = IQR(recip_listtime)) %>% mutate(prop = n/sum(n))
 
@@ -103,6 +105,29 @@ data %>% group_by(recip_sex, PRA_cat) %>% summarise(n=n(), med = median(recip_li
 nrow(data)
 length(unique(data$donor_id))
 ```
+
+# Output IQR ranges
+
+```{r}
+library(purrr)
+p <- c(0.25, 0.5, 0.75)
+p_names <- map_chr(p, ~paste0(.x*100, "%"))
+p_funs <- map(p, ~partial(quantile, probs = .x, na.rm = TRUE)) %>% 
+  set_names(nm = p_names)
+p_funs
+
+
+data %>% 
+  group_by(algorithm, recip_state) %>% 
+  summarize_at(vars(recip_listtime), funs(!!!p_funs))
+
+data %>% 
+  group_by(algorithm, PRA_cat, recip_state) %>% 
+  summarize_at(vars(recip_listtime), funs(!!!p_funs))
+
+```
+
+
 
 ```{r}
 
@@ -197,3 +222,225 @@ year<- data %>% mutate(year = lubridate::year(tx_date)) %>%
 year %>% arrange(desc(median))
 
 ```
+
+# Density plots of kidney recipients
+
+```{r}
+data %>% ggplot(aes(x=recip_listtime)) +geom_density(aes(fill = recip_state), alpha = 0.5) + facet_grid(~recip_state)+ labs(y="Density", x="Time from list to transplantation (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
+
+ggsave("listtimedensity.pdf")
+
+data %>% ggplot(aes(x=recip_waittime)) + geom_density(aes(fill = recip_state), alpha = 0.5) + facet_grid(~recip_state)+ labs(y="Density", x="Waiting time (years)") + theme_bw()+ scale_fill_tableau()+ theme(aspect.ratio = 1.5, legend.position = "none")
+ggsave("waittimedensity.pdf")
+
+```
+
+
+
+
+
+# Map of Australia 
+
+```{r}
+
+library(ozmaps)
+library(ggplot2)
+
+
+ozmap_states$State <- c("NSW", "VIC", "QLD","SA","WA", "VIC","SA", "NSW", "Other")
+ozmap_states$State <- factor(ozmap_states$State, levels = c("NSW", "VIC", "QLD", "SA", "WA", "Other"))
+
+index <- which(ozmap_states$State == "Other")
+ozmap_states<-ozmap_states[-index,]
+
+
+colours <- c("#993333", "#FF9999", "#CCCCCC", "#6699FF", "#003399", "#FFFFFF")
+
+ggplot(ozmap_states) +
+  geom_sf(aes(fill = State), alpha = 0.7) +
+  geom_text(x = 147, y=-32, label = "2.7", size = 7)+ 
+  geom_text(x = 145, y=-37, label = "1.3", size = 3.5)+ 
+  geom_text(x = 122, y=-25, label = "0.21", size = 5.5)+ 
+  geom_text(x = 135, y=-29, label = "0.4", size = 5)+ 
+  geom_text(x = 145, y=-23, label = "0.42", size = 5)+ 
+  theme_bw() + 
+ scale_fill_manual(values = colours)
+
+
+
+
+```
+
+# Primary cause of renal disease
+
+```{r}
+# Primary cause of renal disease
+sort(summary(as.factor(data$recip_primrenal)), decreasing = TRUE)[1]/sum(summary(as.factor(data$recip_primrenal)))*100
+
+
+```
+
+# Waiting list
+
+```{r}
+
+active_patients = readRDS("./active_patients.rds") 
+
+active_patients %>% ggplot(aes(x=recip_listtime)) +geom_density(aes(fill = waitstat), alpha = 0.5) + facet_grid(~waitstat)+ labs(y="Density", x="Time from first active on list to last recorded date 2018 (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
+
+active_patients %>% ggplot(aes(x=recip_waittime)) +geom_density(aes(fill = waitstat), alpha = 0.5) + facet_grid(~waitstat)+ labs(y="Density", x="Waiting Time to 2018 (years)") + theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1.5, legend.position = "none")
+
+
+active_patients %>% 
+  group_by(waitstat) %>% 
+  summarise( median_wait = median(recip_waittime), 
+             iqr_wait = IQR(recip_waittime),
+             n=n())
+
+active_patients %>% 
+  group_by(waitstat) %>% 
+  summarize_at(vars(recip_waittime), funs(!!!p_funs))
+
+```
+
+# Mortality on the waitlist 
+
+```{r}
+wait_p_death = readRDS("./wait_p_death.rds") 
+
+wait_p_death$waitstat <- factor(wait_p_death$waitstat, levels=c("NSW", "VIC", "QLD", "SA", "WA"))
+
+wait_p_death<-wait_p_death %>% group_by(id) %>%
+    filter(waitseq == max(waitseq))
+
+wait_p_death %>% ggplot(aes(x = waitstat, fill = waitstat)) + geom_bar(alpha = 0.8)+ theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 1, legend.position = "none") + labs(x= "State", y= "Frequency")
+
+wait_p_death$waityear <- lubridate::year(lubridate::dmy(wait_p_death$waitdate))
+
+wait_p_death%>% group_by(waityear, waitstat) %>% summarise(n=n()) %>% ggplot(aes(x= waitstat, y = n, fill = waitstat)) + geom_col( alpha =0.8) +facet_wrap(~waityear)+ theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 0.5, legend.position = "none") + labs(x= "State", y= "Frequency", title = "Mortality")
+
+
+
+```
+
+# Table of characteristics by state
+
+```{r}
+
+col_title <- c("Group", "NSW", "VIC","QLD", "SA", "WA")
+
+sex_long <- data %>% 
+  group_by(recip_state, recip_sex) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+sex_wide <- tidyr::pivot_wider(sex_long, names_from = recip_state, values_from = n)
+colnames(sex_wide) <- col_title
+sex_wide <- cbind( Characteristics= c("Sex (n,%)", rep(" ", nrow(sex_wide)-1)), sex_wide)
+
+
+
+PRA_long <- data %>% 
+  group_by(recip_state, PRA_cat) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+PRA_wide <- tidyr::pivot_wider(PRA_long, names_from = recip_state, values_from = n)
+colnames(PRA_wide) <- col_title
+PRA_wide <- cbind( Characteristics= c("PRA Group (n,%)", rep(" ", nrow(PRA_wide)-1)), PRA_wide)
+
+
+blg_long <- data %>% 
+  group_by(recip_state, recip_blgroup) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+blg_wide <- tidyr::pivot_wider(blg_long, names_from = recip_state, values_from = n)
+colnames(blg_wide) <- col_title
+blg_wide <- cbind( Characteristics= c("Blood Group", rep(" ", nrow(blg_wide)-1)), blg_wide)
+
+
+eth_long<- data %>% 
+  group_by(recip_state, eth_recip) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+eth_wide <- tidyr::pivot_wider(eth_long, names_from = recip_state, values_from = n)
+colnames(eth_wide) <- col_title
+eth_wide <- cbind( Characteristics= c("Ethicity (n,%)", rep(" ", nrow(eth_wide)-1)), eth_wide)
+
+
+age_long <- data %>% 
+  group_by(recip_state, recip_agegroups) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+age_wide <- tidyr::pivot_wider(age_long, names_from = recip_state, values_from = n)
+colnames(age_wide) <- col_title
+age_wide <- cbind( Characteristics= c("Age Group (n,%)", rep(" ", nrow(age_wide)-1)), age_wide)
+
+
+diabetes_long <- data %>% 
+  group_by(recip_state, diabetescode_text) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+diabetes_wide <- tidyr::pivot_wider(diabetes_long, names_from = recip_state, values_from = n)
+colnames(diabetes_wide) <- col_title
+diabetes_wide <- cbind( Characteristics= c("Diabetes (n,%)", rep(" ", nrow(diabetes_wide)-1)), diabetes_wide)
+
+
+
+lung_long <- data %>% 
+  group_by(recip_state, recip_lung) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+lung_wide <- tidyr::pivot_wider(lung_long, names_from = recip_state, values_from = n)
+colnames(lung_wide) <- col_title
+lung_wide <- cbind( Characteristics= c("Lung Disease (n,%)", rep(" ", nrow(lung_wide)-1)), lung_wide)
+
+
+pvd_long <- data %>% 
+  group_by(recip_state, recip_pvd) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+pvd_wide <- tidyr::pivot_wider(pvd_long, names_from = recip_state, values_from = n)
+colnames(pvd_wide) <- col_title
+pvd_wide <- cbind( Characteristics= c("Peripheral Vascular Disease (n,%)", rep(" ", nrow(pvd_wide)-1)), pvd_wide)
+
+
+cvd_long <- data %>% 
+  group_by(recip_state, recip_cvd) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+cvd_wide <- tidyr::pivot_wider(cvd_long, names_from = recip_state, values_from = n)
+colnames(cvd_wide) <- col_title
+cvd_wide <- cbind( Characteristics= c("Cerebrovascular Disease (n,%)", rep(" ", nrow(cvd_wide)-1)), cvd_wide)
+
+
+coronary_long <- data %>% 
+  group_by(recip_state, recip_coronary) %>% 
+  summarise(n=n()) %>% mutate(n = paste(n, paste(round(n/sum(n)*100,1), ")", sep = ""), sep = " (" ))
+coronary_wide <- tidyr::pivot_wider(coronary_long, names_from = recip_state, values_from = n)
+colnames(coronary_wide) <- col_title
+coronary_wide <- cbind( Characteristics= c("Coronary artery Disease (n,%)", rep(" ", nrow(coronary_wide)-1)), coronary_wide)
+
+
+
+#colnames(data)
+
+characteristics <- rbind(
+  sex_wide,
+  age_wide, 
+  blg_wide, 
+  eth_wide,
+  PRA_wide,
+  diabetes_wide, 
+  lung_wide, 
+  cvd_wide, 
+  pvd_wide, 
+  coronary_wide
+) %>% tidyr::drop_na(Group)
+
+#characteristics <- na.omit(characteristics)
+characteristics
+```
+
+
+```{r}
+waitlist <- read.csv("./42510_paeds_allocation_project/waitlist.csv",na.strings=c("-" ," ", "","NA"))
+waitlist$waityear <- lubridate::year(lubridate::dmy(waitlist$waitdate))
+waitlist_removal <- waitlist[which(is.na(waitlist$waitorgans) & waitlist$waitstatus != "Active"),]
+
+waitlist_removal%>% group_by(id, waitstat, waityear) %>% summarise(n=n()) %>% group_by( waitstat, waityear) %>% summarise(n=n())%>% ggplot(aes(x=waitstat, y=n, fill=waitstat)) + 
+geom_col(alpha = 0.8) + facet_wrap(~waityear)+ theme_bw() + scale_fill_tableau() + theme(aspect.ratio = 0.5, legend.position = "none") + labs(x= "State", y= "Frequency", title = "Delisting")
+
+
+
+```
+
